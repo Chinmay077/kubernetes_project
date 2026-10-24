@@ -30,7 +30,8 @@ APP_VERSION = os.environ.get("APP_VERSION", "1.0.0")
 # Backend service DNS name – Kubernetes resolves this automatically when both
 # Deployment + Service are in the same namespace.
 # Students: change this only if you rename the backend Service.
-BACKEND_URL = os.environ.get("BACKEND_URL", "http://minimart-backend-svc:5000")
+BACKEND_URL       = os.environ.get("BACKEND_URL",       "http://minimart-backend-svc:5000")
+NOTIFICATION_URL  = os.environ.get("NOTIFICATION_URL",  "http://minimart-notification-svc:6000")
 
 logger.info("Frontend starting | pod=%s | backend=%s", POD_NAME, BACKEND_URL)
 
@@ -49,13 +50,11 @@ def lab():
 # ── Proxy ──────────────────────────────────────────────────────────────────
 # Paths that go directly to the backend root (no /api/ prefix)
 HEALTH_PATHS = {"health", "ready"}
-# Paths that need /api/ prefix on the backend
-ALLOWED_PROXY_PATHS = {"products", "info", "categories", "health", "ready"}
+ALLOWED_PROXY_PATHS = {"products", "info", "categories", "health", "ready", "db"}
 
 
 def _proxy(path):
     """Forward a request to the backend and inject frontend pod identity."""
-    # health/ready → backend root; everything else → /api/<path>
     base = path.split("/")[0]
     if base in HEALTH_PATHS:
         url = f"{BACKEND_URL}/{path}"
@@ -64,9 +63,15 @@ def _proxy(path):
     params = request.args.to_dict()
     try:
         logger.info("PROXY → %s | pod=%s", url, POD_NAME)
-        r = requests.get(url, params=params, timeout=5)
+        if request.method == "POST":
+            r = requests.post(url, json=request.get_json(silent=True), timeout=5)
+        elif request.method == "PUT":
+            r = requests.put(url, json=request.get_json(silent=True), timeout=5)
+        elif request.method == "DELETE":
+            r = requests.delete(url, timeout=5)
+        else:
+            r = requests.get(url, params=params, timeout=5)
         data = r.json()
-        # Annotate with frontend pod so the browser can show both pod names
         data["frontend_pod"]     = POD_NAME
         data["frontend_version"] = APP_VERSION
         resp = jsonify(data)
@@ -85,13 +90,32 @@ def _proxy(path):
         return jsonify({"error": str(exc)}), 500
 
 
-@app.route("/api/proxy/<path:path>")
+@app.route("/api/proxy/<path:path>", methods=["GET", "POST", "PUT", "DELETE"])
 def proxy(path):
-    # Basic allowlist to prevent open-proxy abuse
     base = path.split("/")[0]
-    if base not in ALLOWED_PROXY_PATHS and path.split("/")[0] not in ALLOWED_PROXY_PATHS:
+    if base not in ALLOWED_PROXY_PATHS:
         abort(404)
     return _proxy(path)
+
+
+# ── Notification service proxy ──────────────────────────────────────────────
+@app.route("/api/notify/<path:path>", methods=["GET", "DELETE"])
+def notify_proxy(path):
+    """Proxy to the notification-service so the browser can poll events."""
+    url = f"{NOTIFICATION_URL}/{path}"
+    try:
+        if request.method == "DELETE":
+            r = requests.delete(url, timeout=5)
+        else:
+            r = requests.get(url, timeout=5)
+        data = r.json()
+        data["frontend_pod"] = POD_NAME
+        return jsonify(data), r.status_code
+    except requests.exceptions.ConnectionError:
+        return jsonify({"error": "Notification service unreachable",
+                        "hint": "Run: kubectl get svc minimart-notification-svc"}), 503
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 # ── Health / Readiness probes (for the frontend pod itself) ──────────────

@@ -1,0 +1,88 @@
+# ============================================================
+# MiniMart Notification Service – Deployment + ClusterIP Service
+# ============================================================
+# Teaching notes:
+#   • 1 replica only — in-memory queue must stay on one pod
+#     (in production use a real queue: SQS, RabbitMQ, Kafka)
+#   • ClusterIP: only reachable from inside the cluster
+#   • Backend POSTs events here (producer → queue pattern)
+#   • Frontend GETs events via the frontend proxy (consumer poll)
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minimart-notification
+  labels:
+    app: minimart-notification
+    tier: messaging
+    version: "1.0.0"
+spec:
+  replicas: 1   # Must be 1 — in-memory queue, not distributed
+
+  selector:
+    matchLabels:
+      app: minimart-notification
+
+  template:
+    metadata:
+      labels:
+        app: minimart-notification
+        tier: messaging
+        version: "1.0.0"
+    spec:
+      containers:
+        - name: notification
+          image: minimart-notification:latest
+          imagePullPolicy: Never
+
+          ports:
+            - containerPort: 6000
+
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: APP_VERSION
+              value: "1.0.0"
+
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 6000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 6000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minimart-notification-svc
+  labels:
+    app: minimart-notification
+    tier: messaging
+spec:
+  type: ClusterIP
+  selector:
+    app: minimart-notification
+  ports:
+    - name: http
+      port: 6000
+      targetPort: 6000
+      protocol: TCP

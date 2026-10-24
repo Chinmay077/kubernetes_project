@@ -140,10 +140,29 @@
         <div class="arch-node data-node">
           <div class="node-badge badge-live">🟢 Live</div>
           <div class="node-icon">🗃️</div>
-          <div class="node-label">Product Data</div>
-          <div class="node-sub">In-Memory (RAM)</div>
-          <div class="node-detail warn">⚠️ Resets on Pod restart</div>
-          <div class="node-detail info">→ PostgreSQL in Exercise 2</div>
+          <div class="node-label">SQLite DB</div>
+          <div class="node-sub">/data/minimart.db</div>
+          <div class="node-detail info">emptyDir volume</div>
+          <div class="node-detail warn">→ PVC for production</div>
+        </div>
+      </div>
+
+      <!-- Arrow 5 (async) -->
+      <div class="arch-arrow" id="arrow5" style="opacity:0.7">
+        <div class="arrow-line" style="border-top: 2px dashed #f59e0b"></div>
+        <div class="arrow-head" style="color:#f59e0b">→</div>
+        <div class="arrow-label" style="color:#f59e0b">async event</div>
+      </div>
+
+      <!-- Column 6: Notification Service -->
+      <div class="arch-col">
+        <div class="arch-node" style="border-color:#f59e0b;background:rgba(245,158,11,0.08)">
+          <div class="node-badge" style="background:#f59e0b;color:#000">🟡 Async</div>
+          <div class="node-icon">📨</div>
+          <div class="node-label">Notification Svc</div>
+          <div class="node-sub">minimart-notification-svc</div>
+          <div class="node-detail">Port: <code>6000</code></div>
+          <div class="node-detail">Pattern: <code>fire-and-forget</code></div>
         </div>
       </div>
 
@@ -409,6 +428,119 @@ kubectl describe pod -l app=minimart-backend | grep -A 10 "Liveness\|Readiness"
 # Watch probe events
 kubectl get events --sort-by=.metadata.creationTimestamp | grep -i probe</code></pre>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Experiment F: Async Messaging -->
+      <div class="experiment-card" onclick="Lab.toggleExp('expF')">
+        <div class="exp-header">
+          <span class="exp-badge" style="background:#f59e0b;color:#000">F</span>
+          <div>
+            <h3>Async Messaging</h3>
+            <p>Watch fire-and-forget events flow to the Notification Service</p>
+          </div>
+          <span class="exp-toggle" id="expFToggle">▼</span>
+        </div>
+        <div class="exp-body" id="expF">
+          <div class="exp-concept">
+            <h4>📚 Concept</h4>
+            <p>In <strong>synchronous REST</strong>, the caller waits for a response. In <strong>async messaging</strong>, the producer fires an event and immediately moves on — the consumer processes it independently. This decouples services: if the notification service goes down, the backend API still works perfectly.</p>
+            <pre class="concept-chain">Backend API (producer) → POST /events → Notification Svc (consumer)
+                          ↑ doesn't wait!          ↓
+                      returns 200             processes in background</pre>
+          </div>
+          <div class="exp-steps">
+            <h4>🧪 Try it — Create a product via API</h4>
+            <div class="code-block">
+              <pre><code># Add a new product (fires async event to notification service)
+curl -X POST http://$(minikube ip):30080/api/proxy/products \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Test Gadget","price":9.99,"category":"Electronics","stock":5}'
+
+# Check what events the notification service received
+curl http://$(minikube ip):30080/api/notify/events | python -m json.tool
+
+# Watch notification service logs
+kubectl logs -l app=minimart-notification -f</code></pre>
+            </div>
+            <div class="live-demo">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+                <button class="btn-secondary" onclick="event.stopPropagation(); Lab.createTestProduct()">➕ Create Test Product</button>
+                <button class="btn-ghost" onclick="event.stopPropagation(); Lab.refreshNotifications()">↺ Poll Events</button>
+                <button class="btn-danger" onclick="event.stopPropagation(); Lab.clearNotifications()">🗑 Clear Queue</button>
+              </div>
+              <div id="notificationLog" class="routing-results" style="max-height:180px;overflow-y:auto"></div>
+            </div>
+          </div>
+          <div class="exp-outcome">
+            <h4>✅ Expected Outcome</h4>
+            <p>After creating a product, the Notification Log shows a <code>PRODUCT_CREATED</code> event with <em>a slight delay</em> — demonstrating that it was processed asynchronously, not as part of the original request.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Experiment G: Protocol Comparison -->
+      <div class="experiment-card" onclick="Lab.toggleExp('expG')">
+        <div class="exp-header">
+          <span class="exp-badge" style="background:#8b5cf6">G</span>
+          <div>
+            <h3>Communication Protocols</h3>
+            <p>REST vs Async vs gRPC — when to use what</p>
+          </div>
+          <span class="exp-toggle" id="expGToggle">▼</span>
+        </div>
+        <div class="exp-body" id="expG">
+          <div class="exp-concept">
+            <h4>📚 Three Patterns — This Project Uses All Three Concepts</h4>
+            <div class="protocol-grid" id="protocolGrid">
+              <div class="protocol-card">
+                <div class="proto-badge" style="background:#3b82f6">REST / HTTP</div>
+                <div class="proto-label">How it works here</div>
+                <p>Browser → Frontend → Backend. Every call is synchronous — caller waits for response.</p>
+                <div class="proto-props">
+                  <span class="prop good">✓ Human-readable JSON</span>
+                  <span class="prop good">✓ Easy to debug (curl)</span>
+                  <span class="prop bad">✗ Tight coupling</span>
+                  <span class="prop bad">✗ Caller blocked while waiting</span>
+                </div>
+                <div class="proto-use">Best for: Public APIs, CRUD operations, browser-facing endpoints</div>
+              </div>
+              <div class="protocol-card">
+                <div class="proto-badge" style="background:#f59e0b;color:#000">Async / Fire-and-Forget</div>
+                <div class="proto-label">How it works here</div>
+                <p>Backend → Notification Service. Producer doesn't wait. Decoupled — either service can restart independently.</p>
+                <div class="proto-props">
+                  <span class="prop good">✓ Loose coupling</span>
+                  <span class="prop good">✓ Resilient — failure isolated</span>
+                  <span class="prop bad">✗ No immediate confirmation</span>
+                  <span class="prop bad">✗ Harder to trace errors</span>
+                </div>
+                <div class="proto-use">Best for: Notifications, emails, audit logs, analytics events</div>
+              </div>
+              <div class="protocol-card">
+                <div class="proto-badge" style="background:#8b5cf6">gRPC (Concept)</div>
+                <div class="proto-label">How you'd use it</div>
+                <p>Binary protocol over HTTP/2. Strongly typed via Protobuf. The backend would expose a <code>.proto</code> schema and a frontend/service calls it like a local function.</p>
+                <div class="proto-props">
+                  <span class="prop good">✓ Very fast (binary)</span>
+                  <span class="prop good">✓ Strongly typed contract</span>
+                  <span class="prop bad">✗ Not human-readable</span>
+                  <span class="prop bad">✗ Browser support needs proxy</span>
+                </div>
+                <div class="proto-use">Best for: Internal service-to-service calls, high-throughput microservices</div>
+              </div>
+            </div>
+          </div>
+          <div class="exp-steps">
+            <h4>🧪 Live Latency Comparison</h4>
+            <p style="font-size:0.85rem;opacity:0.7;margin-bottom:8px">Compares a REST call to the products endpoint vs the notification events endpoint. Both are HTTP but different payload sizes — demonstrates how protocol overhead works.</p>
+            <button class="btn-secondary" onclick="event.stopPropagation(); Lab.runLatencyComparison()">⏱ Run Comparison (5 rounds)</button>
+            <div id="latencyResults" class="routing-results" style="max-height:160px;overflow-y:auto;margin-top:8px"></div>
+          </div>
+          <div class="exp-outcome">
+            <h4>✅ Expected Outcome</h4>
+            <p>The products endpoint (larger JSON payload) will generally be slower than the events endpoint (smaller payload). This illustrates why gRPC's binary encoding wins at scale for internal service communication.</p>
           </div>
         </div>
       </div>

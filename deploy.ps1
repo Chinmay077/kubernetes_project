@@ -53,10 +53,15 @@ Write-Step "Building Frontend image (minimart-frontend:latest)"
 docker build -t minimart-frontend:latest ./frontend
 Write-Ok "Frontend image built"
 
+Write-Step "Building Notification image (minimart-notification:latest)"
+docker build -t minimart-notification:latest ./notification-service
+Write-Ok "Notification image built"
+
 # ── 4. Apply Kubernetes manifests ────────────────────────────────────────
 Write-Step "Applying Kubernetes manifests"
 kubectl apply -f k8s/backend-deployment.yaml
 kubectl apply -f k8s/frontend-deployment.yaml
+kubectl apply -f k8s/notification-deployment.yaml
 Write-Ok "Manifests applied"
 
 # ── 5. Wait for rollout ───────────────────────────────────────────────────
@@ -65,6 +70,9 @@ kubectl rollout status deployment/minimart-backend --timeout=90s
 
 Write-Step "Waiting for frontend rollout"
 kubectl rollout status deployment/minimart-frontend --timeout=90s
+
+Write-Step "Waiting for notification rollout"
+kubectl rollout status deployment/minimart-notification --timeout=90s
 
 # ── 6. Show status ────────────────────────────────────────────────────────
 Write-Step "Cluster Status"
@@ -89,3 +97,4 @@ Write-Host ""
 Write-Host "  To tail all logs:" -ForegroundColor Gray
 Write-Host "    kubectl logs -l app=minimart-frontend -f --prefix" -ForegroundColor Gray
 Write-Host "    kubectl logs -l app=minimart-backend  -f --prefix" -ForegroundColor Gray
+Write-Host "    kubectl logs -l app=minimart-notification  -f --prefix" -ForegroundColor Gray

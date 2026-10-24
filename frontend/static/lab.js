@@ -302,6 +302,132 @@ const Lab = (() => {
     }, 800);
   }
 
+  // ── Async Messaging (Experiment F) ────────────────────────────
+  let _testProductCount = 0;
+
+  async function createTestProduct() {
+    _testProductCount++;
+    const name = `Lab Product #${_testProductCount}`;
+    const log  = $('notificationLog');
+    if (log) {
+      const row = document.createElement('div');
+      row.className = 'routing-row';
+      row.style.color = '#f59e0b';
+      row.textContent = `⏳ Creating "${name}" via POST /api/proxy/products …`;
+      log.prepend(row);
+    }
+    try {
+      const t0 = performance.now();
+      const r = await fetch('/api/proxy/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, price: 9.99, category: 'Demo', stock: 1 }),
+      });
+      const ms = Math.round(performance.now() - t0);
+      const j  = await r.json();
+      const id = j?.data?.product?.id || '?';
+      if (log) {
+        const row = document.createElement('div');
+        row.className = 'routing-row';
+        row.style.color = '#4ade80';
+        row.textContent = `✓ Product id=${id} created in ${ms}ms — event fired async to notification-svc`;
+        log.prepend(row);
+      }
+      // Auto-poll events after short delay (async arrives slightly later)
+      setTimeout(refreshNotifications, 600);
+    } catch(e) {
+      if (log) {
+        const row = document.createElement('div');
+        row.className = 'routing-row';
+        row.style.color = '#f87171';
+        row.textContent = `✗ Error: ${e.message}`;
+        log.prepend(row);
+      }
+    }
+  }
+
+  async function refreshNotifications() {
+    const log = $('notificationLog');
+    try {
+      const r = await fetch('/api/notify/events');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      const events = j.events || [];
+      if (!log) return;
+      if (events.length === 0) {
+        const row = document.createElement('div');
+        row.className = 'routing-row';
+        row.textContent = 'No events yet — create a product first.';
+        log.innerHTML = '';
+        log.appendChild(row);
+        return;
+      }
+      log.innerHTML = '';
+      events.slice(0, 20).forEach(ev => {
+        const row = document.createElement('div');
+        row.className = 'routing-row';
+        const typeColor = ev.type === 'PRODUCT_CREATED' ? '#4ade80'
+                       : ev.type === 'PRODUCT_DELETED'  ? '#f87171'
+                       : '#f59e0b';
+        row.innerHTML = `<span style="color:${typeColor};font-weight:600">${ev.type}</span> `
+          + `&nbsp;id=${ev.id} &nbsp;from: ${shorten(ev.source)} &nbsp;`
+          + `<span style="opacity:0.5">${new Date(ev.received_at).toLocaleTimeString()}</span>`;
+        log.appendChild(row);
+      });
+    } catch(e) {
+      if (log) {
+        log.innerHTML = `<div class="routing-row" style="color:#f87171">
+          Notification service unreachable — is it deployed? (${e.message})</div>`;
+      }
+    }
+  }
+
+  async function clearNotifications() {
+    await fetch('/api/notify/events/clear', { method: 'DELETE' });
+    const log = $('notificationLog');
+    if (log) log.innerHTML = '<div class="routing-row" style="opacity:0.5">Queue cleared.</div>';
+  }
+
+  // ── Protocol Latency Comparison (Experiment G) ─────────────────
+  async function runLatencyComparison() {
+    const results = $('latencyResults');
+    if (results) results.innerHTML = '<div class="routing-row" style="opacity:0.6">Running 5 rounds…</div>';
+
+    for (let i = 1; i <= 5; i++) {
+      await sleep(250);
+      const t1 = performance.now();
+      let restMs = 0, asyncMs = 0;
+      try {
+        await fetch('/api/proxy/products');
+        restMs = Math.round(performance.now() - t1);
+      } catch(_) { restMs = -1; }
+
+      const t2 = performance.now();
+      try {
+        await fetch('/api/notify/events');
+        asyncMs = Math.round(performance.now() - t2);
+      } catch(_) { asyncMs = -1; }
+
+      if (results) {
+        const row = document.createElement('div');
+        row.className = 'routing-row';
+        const restColor  = restMs  < asyncMs ? '#4ade80' : '#f87171';
+        const asyncColor = asyncMs < restMs  ? '#4ade80' : '#f59e0b';
+        row.innerHTML = `Round ${i}: `
+          + `<span style="color:${restColor}">REST /products → ${restMs}ms</span> &nbsp;|&nbsp; `
+          + `<span style="color:${asyncColor}">Events poll → ${asyncMs}ms</span>`;
+        if (i === 1 && results.children.length === 1) results.innerHTML = '';
+        results.appendChild(row);
+      }
+    }
+    if (results) {
+      const note = document.createElement('div');
+      note.style.cssText = 'opacity:0.5;font-size:0.78rem;margin-top:6px;padding:4px 0;border-top:1px solid rgba(255,255,255,0.1)';
+      note.textContent = 'Larger payloads = more bytes = higher latency. gRPC binary encoding reduces this by ~60–80%.';
+      results.appendChild(note);
+    }
+  }
+
   // ── Helpers ────────────────────────────────────────────────────
   function shorten(name, max=18) {
     if (!name) return '–';
@@ -324,5 +450,7 @@ const Lab = (() => {
 
   // Public API
   return { sendRequest, sendBurst, refresh, toggleExp, runRoutingDemo,
-           simScale, simDelete, checkHealth };
+           simScale, simDelete, checkHealth,
+           createTestProduct, refreshNotifications, clearNotifications,
+           runLatencyComparison };
 })();

@@ -11,6 +11,8 @@ import time
 import socket
 import sqlite3
 import logging
+import threading
+import requests
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from flask import Flask, jsonify, request
@@ -36,6 +38,10 @@ POD_NAME      = os.environ.get("POD_NAME",      socket.gethostname())
 POD_NAMESPACE = os.environ.get("POD_NAMESPACE", "default")
 APP_VERSION   = os.environ.get("APP_VERSION",   "1.0.0")
 NODE_NAME     = os.environ.get("NODE_NAME",     "unknown-node")
+
+# Notification service URL – fire-and-forget async events
+# Set to "disabled" to skip (useful when running without the notification pod)
+NOTIFICATION_URL = os.environ.get("NOTIFICATION_URL", "http://minimart-notification-svc:6000")
 
 # ---------------------------------------------------------------------------
 # SQLite – DB lives in /data so a Kubernetes volume can be mounted there.
@@ -110,6 +116,29 @@ start_time = time.time()
 
 # Initialize DB at module load (runs for both `python app.py` and gunicorn)
 init_db()
+
+
+def fire_event(event_type: str, payload: dict):
+    """
+    Fire-and-forget: send an event to the notification service in a background
+    thread so the API response is NOT blocked waiting for the notification.
+    This is the key teaching point of async communication.
+    """
+    if NOTIFICATION_URL == "disabled":
+        return
+
+    def _send():
+        try:
+            requests.post(
+                f"{NOTIFICATION_URL}/events",
+                json={"type": event_type, "payload": payload, "source": POD_NAME},
+                timeout=2,
+            )
+        except Exception as exc:
+            # Never let notification failure break the main API
+            logger.warning("Notification fire failed (non-critical): %s", exc)
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def pod_meta():
@@ -210,6 +239,8 @@ def create_product():
         new_id = cur.lastrowid
         row = conn.execute("SELECT * FROM products WHERE id=?", (new_id,)).fetchone()
     logger.info("Product created | id=%d | name=%s | pod=%s", new_id, name, POD_NAME)
+    # Async: fire event to notification service (non-blocking)
+    fire_event("PRODUCT_CREATED", {"id": new_id, "name": name, "price": price})
     return json_response({"product": row_to_dict(row)}, 201)
 
 
@@ -229,6 +260,8 @@ def update_product(product_id):
     if not row:
         return json_response({"error": "Product not found"}, 404)
     logger.info("Product updated | id=%d | pod=%s", product_id, POD_NAME)
+    # Async: fire event to notification service (non-blocking)
+    fire_event("STOCK_UPDATED", {"id": product_id, **updates})
     return json_response({"product": row_to_dict(row)})
 
 
@@ -241,6 +274,8 @@ def delete_product(product_id):
         conn.execute("DELETE FROM products WHERE id=?", (product_id,))
         conn.commit()
     logger.info("Product deleted | id=%d | pod=%s", product_id, POD_NAME)
+    # Async: fire event to notification service (non-blocking)
+    fire_event("PRODUCT_DELETED", {"id": product_id})
     return json_response({"deleted": product_id})
 
 
