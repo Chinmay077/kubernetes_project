@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 # ============================================================
 # MiniMart Kubernetes Learning Lab - Windows Deploy Script
-# Requires: Docker Desktop (with Minikube driver), kubectl
+# Requires: Minikube, kubectl
 # ============================================================
 param(
     [switch]$Clean,
@@ -34,37 +34,31 @@ $status = minikube status --format='{{.Host}}' 2>$null
 if ($status -eq "Running") {
     Write-Ok "Minikube already running"
 } else {
-    minikube start --driver=docker --cpus=2 --memory=3g
+    minikube start --driver=docker
     Write-Ok "Minikube started"
 }
 
-# -- 2. Point Docker CLI at Minikube's Docker daemon ---------------------------
-Write-Step "Configuring Docker to use Minikube's daemon"
-Write-Warn "Running: minikube docker-env --shell powershell | Invoke-Expression"
-& minikube -p minikube docker-env --shell powershell | Invoke-Expression
-Write-Ok "Docker context switched to Minikube"
-
-# -- 3. Build images inside Minikube ------------------------------------------
+# -- 2. Build images directly into Minikube -----------------------------------
 Write-Step "Building Backend image (minimart-backend:latest)"
-docker build -t minimart-backend:latest ./backend
+minikube image build -t minimart-backend:latest ./backend
 Write-Ok "Backend image built"
 
 Write-Step "Building Frontend image (minimart-frontend:latest)"
-docker build -t minimart-frontend:latest ./frontend
+minikube image build -t minimart-frontend:latest ./frontend
 Write-Ok "Frontend image built"
 
 Write-Step "Building Notification image (minimart-notification:latest)"
-docker build -t minimart-notification:latest ./notification-service
+minikube image build -t minimart-notification:latest ./notification-service
 Write-Ok "Notification image built"
 
-# -- 4. Apply Kubernetes manifests --------------------------------------------
+# -- 3. Apply Kubernetes manifests --------------------------------------------
 Write-Step "Applying Kubernetes manifests"
 kubectl apply -f k8s/backend-deployment.yaml
 kubectl apply -f k8s/frontend-deployment.yaml
 kubectl apply -f k8s/notification-deployment.yaml
 Write-Ok "Manifests applied"
 
-# -- 5. Wait for rollout -------------------------------------------------------
+# -- 4. Wait for rollout -------------------------------------------------------
 Write-Step "Waiting for backend rollout"
 kubectl rollout status deployment/minimart-backend --timeout=90s
 
@@ -74,11 +68,11 @@ kubectl rollout status deployment/minimart-frontend --timeout=90s
 Write-Step "Waiting for notification rollout"
 kubectl rollout status deployment/minimart-notification --timeout=90s
 
-# -- 6. Show status ------------------------------------------------------------
+# -- 5. Show status ------------------------------------------------------------
 Write-Step "Cluster Status"
 kubectl get pods,svc -o wide
 
-# -- 7. Print access URL -------------------------------------------------------
+# -- 6. Print access URL -------------------------------------------------------
 Write-Step "Getting access URL"
 $ip = minikube ip
 $url = "http://${ip}:30080"
