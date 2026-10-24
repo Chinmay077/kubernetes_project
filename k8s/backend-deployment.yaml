@@ -23,7 +23,9 @@ metadata:
     tier: backend
     version: "1.0.0"
 spec:
-  replicas: 2
+  # SQLite is an embedded single-file database. Running 1 replica ensures
+  # a single source of truth without split-brain state between multiple pods.
+  replicas: 1
 
   selector:
     matchLabels:
