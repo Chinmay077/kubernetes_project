@@ -12,9 +12,15 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_VERSION=1.0.0 \
-    PORT=5000
+    PORT=5000 \
+    DB_DIR=/data
 
 WORKDIR /app
+
+# /data is where the SQLite DB lives.
+# In Kubernetes an emptyDir volume is mounted here.
+# Locally, Docker will use this directory inside the container.
+RUN mkdir -p /data
 
 COPY --from=builder /install /usr/local
 COPY app.py .

@@ -1,23 +1,27 @@
 """
 MiniMart Kubernetes Learning Lab - Backend API
-Flask service providing product data and Kubernetes learning telemetry.
+Flask service providing product data backed by SQLite.
+
+DB file lives at /data/minimart.db  (mounted via emptyDir in Kubernetes).
+On first startup the schema is created and seeded automatically.
 """
 
 import os
 import time
 import socket
+import sqlite3
 import logging
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from flask import Flask, jsonify, request, Response
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
-CORS(app)  # Allow cross-origin requests from the frontend pod/container
+CORS(app)
 
-# Structured logging so students can read kubectl logs output clearly
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -28,46 +32,94 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Pod identity – injected via Kubernetes Downward API env vars
 # ---------------------------------------------------------------------------
-POD_NAME = os.environ.get("POD_NAME", socket.gethostname())
+POD_NAME      = os.environ.get("POD_NAME",      socket.gethostname())
 POD_NAMESPACE = os.environ.get("POD_NAMESPACE", "default")
-APP_VERSION = os.environ.get("APP_VERSION", "1.0.0")
-NODE_NAME = os.environ.get("NODE_NAME", "unknown-node")
+APP_VERSION   = os.environ.get("APP_VERSION",   "1.0.0")
+NODE_NAME     = os.environ.get("NODE_NAME",     "unknown-node")
 
 # ---------------------------------------------------------------------------
-# In-memory product catalogue
-# NOTE for students: This data lives only in RAM. If this Pod is deleted
-# and a new one starts, the data resets. A real system would use a
-# persistent database (e.g. PostgreSQL with a PersistentVolumeClaim).
+# SQLite – DB lives in /data so a Kubernetes volume can be mounted there.
+# Fallback: ./minimart.db  when running locally without the volume.
 # ---------------------------------------------------------------------------
-PRODUCTS = [
-    {"id": 1, "name": "Wireless Headphones",  "price": 79.99,  "category": "Electronics", "stock": 42, "rating": 4.5, "image": "🎧"},
-    {"id": 2, "name": "Mechanical Keyboard",  "price": 129.99, "category": "Electronics", "stock": 18, "rating": 4.7, "image": "⌨️"},
-    {"id": 3, "name": "USB-C Hub",            "price": 39.99,  "category": "Electronics", "stock": 65, "rating": 4.2, "image": "🔌"},
-    {"id": 4, "name": "Standing Desk Mat",    "price": 49.99,  "category": "Office",      "stock": 30, "rating": 4.6, "image": "🟩"},
-    {"id": 5, "name": "Ergonomic Mouse",      "price": 59.99,  "category": "Electronics", "stock": 22, "rating": 4.4, "image": "🖱️"},
-    {"id": 6, "name": "Monitor Light Bar",    "price": 35.99,  "category": "Lighting",    "stock": 55, "rating": 4.8, "image": "💡"},
-    {"id": 7, "name": "Cable Management Kit", "price": 19.99,  "category": "Office",      "stock": 80, "rating": 4.3, "image": "🗂️"},
-    {"id": 8, "name": "Laptop Stand",         "price": 44.99,  "category": "Office",      "stock": 35, "rating": 4.5, "image": "💻"},
-    {"id": 9, "name": "Webcam 1080p",         "price": 89.99,  "category": "Electronics", "stock": 15, "rating": 4.1, "image": "📷"},
-    {"id":10, "name": "Desk Organiser",       "price": 29.99,  "category": "Office",      "stock": 50, "rating": 4.4, "image": "🗄️"},
-    {"id":11, "name": "Noise-Cancel Mic",     "price": 99.99,  "category": "Electronics", "stock": 12, "rating": 4.6, "image": "🎤"},
-    {"id":12, "name": "Smart Plug 4-Pack",    "price": 24.99,  "category": "Smart Home",  "stock": 70, "rating": 4.3, "image": "🔋"},
+DB_DIR  = os.environ.get("DB_DIR", "/data")
+DB_PATH = os.path.join(DB_DIR, "minimart.db")
+
+SEED_PRODUCTS = [
+    ("Wireless Headphones",  79.99,  "Electronics", 42, 4.5, "🎧"),
+    ("Mechanical Keyboard",  129.99, "Electronics", 18, 4.7, "⌨️"),
+    ("USB-C Hub",            39.99,  "Electronics", 65, 4.2, "🔌"),
+    ("Standing Desk Mat",    49.99,  "Office",       30, 4.6, "🟩"),
+    ("Ergonomic Mouse",      59.99,  "Electronics", 22, 4.4, "🖱️"),
+    ("Monitor Light Bar",    35.99,  "Lighting",    55, 4.8, "💡"),
+    ("Cable Management Kit", 19.99,  "Office",       80, 4.3, "🗂️"),
+    ("Laptop Stand",         44.99,  "Office",       35, 4.5, "💻"),
+    ("Webcam 1080p",         89.99,  "Electronics", 15, 4.1, "📷"),
+    ("Desk Organiser",       29.99,  "Office",       50, 4.4, "🗄️"),
+    ("Noise-Cancel Mic",     99.99,  "Electronics", 12, 4.6, "🎤"),
+    ("Smart Plug 4-Pack",    24.99,  "Smart Home",  70, 4.3, "🔋"),
 ]
 
-# Simple in-memory request counter (per pod, resets on restart)
+
+def init_db():
+    """Create schema and seed data on first run."""
+    os.makedirs(DB_DIR, exist_ok=True)
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS products (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                name     TEXT    NOT NULL,
+                price    REAL    NOT NULL,
+                category TEXT    NOT NULL,
+                stock    INTEGER DEFAULT 0,
+                rating   REAL    DEFAULT 0.0,
+                image    TEXT    DEFAULT '📦'
+            )
+        """)
+        # Seed only when table is empty (first boot)
+        if conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 0:
+            conn.executemany(
+                "INSERT INTO products (name, price, category, stock, rating, image) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                SEED_PRODUCTS,
+            )
+            logger.info("DB seeded with %d products at %s", len(SEED_PRODUCTS), DB_PATH)
+        conn.commit()
+    logger.info("SQLite DB ready | path=%s", DB_PATH)
+
+
+@contextmanager
+def get_db():
+    """Yield a thread-local SQLite connection with row_factory set."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row          # access columns by name
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def row_to_dict(row):
+    return dict(row)
+
+
+# ---------------------------------------------------------------------------
+# Counters / identity helpers
+# ---------------------------------------------------------------------------
 request_counter = 0
 start_time = time.time()
 
+# Initialize DB at module load (runs for both `python app.py` and gunicorn)
+init_db()
+
 
 def pod_meta():
-    """Return a dictionary describing this specific Pod's identity."""
     return {
-        "pod_name": POD_NAME,
-        "pod_namespace": POD_NAMESPACE,
-        "node_name": NODE_NAME,
-        "app_version": APP_VERSION,
+        "pod_name":       POD_NAME,
+        "pod_namespace":  POD_NAMESPACE,
+        "node_name":      NODE_NAME,
+        "app_version":    APP_VERSION,
         "uptime_seconds": round(time.time() - start_time, 1),
-        "request_count": request_counter,
+        "request_count":  request_counter,
     }
 
 
@@ -77,28 +129,23 @@ def log_request():
     request_counter += 1
     logger.info(
         "REQUEST #%d | %s %s | from %s | pod=%s",
-        request_counter,
-        request.method,
-        request.path,
-        request.remote_addr,
-        POD_NAME,
+        request_counter, request.method, request.path,
+        request.remote_addr, POD_NAME,
     )
 
 
 def json_response(data, status=200):
-    """Wrap data with pod metadata and return a Flask Response."""
     payload = {
         "data": data,
         "meta": {
             **pod_meta(),
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "service": "minimart-backend",
+            "service":   "minimart-backend",
         },
     }
     resp = jsonify(payload)
     resp.status_code = status
-    # Expose pod name as a response header so the frontend can display it
-    resp.headers["X-Pod-Name"] = POD_NAME
+    resp.headers["X-Pod-Name"]    = POD_NAME
     resp.headers["X-App-Version"] = APP_VERSION
     return resp
 
@@ -110,66 +157,150 @@ def json_response(data, status=200):
 @app.route("/")
 def index():
     return json_response({"message": "MiniMart Backend API", "endpoints": [
-        "/api/products", "/api/products/<id>", "/health", "/ready", "/api/info"
+        "/api/products", "/api/products/<id>", "/api/categories",
+        "/api/info", "/api/db/stats", "/health", "/ready",
     ]})
 
 
-@app.route("/api/products")
+# ── Products ─────────────────────────────────────────────────────────────────
+
+@app.route("/api/products", methods=["GET"])
 def get_products():
     category = request.args.get("category")
-    if category:
-        filtered = [p for p in PRODUCTS if p["category"].lower() == category.lower()]
-    else:
-        filtered = PRODUCTS
-    return json_response({"products": filtered, "total": len(filtered)})
+    with get_db() as conn:
+        if category:
+            rows = conn.execute(
+                "SELECT * FROM products WHERE LOWER(category)=LOWER(?)", (category,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM products").fetchall()
+    products = [row_to_dict(r) for r in rows]
+    return json_response({"products": products, "total": len(products)})
 
 
-@app.route("/api/products/<int:product_id>")
+@app.route("/api/products/<int:product_id>", methods=["GET"])
 def get_product(product_id):
-    product = next((p for p in PRODUCTS if p["id"] == product_id), None)
-    if not product:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM products WHERE id=?", (product_id,)
+        ).fetchone()
+    if not row:
         return json_response({"error": "Product not found"}, 404)
-    return json_response({"product": product})
+    return json_response({"product": row_to_dict(row)})
 
 
-@app.route("/api/info")
-def api_info():
-    """Return pod identity and stats – used by the lab dashboard."""
+@app.route("/api/products", methods=["POST"])
+def create_product():
+    body = request.get_json(silent=True) or {}
+    name     = body.get("name")
+    price    = body.get("price")
+    category = body.get("category", "Uncategorised")
+    stock    = body.get("stock", 0)
+    rating   = body.get("rating", 0.0)
+    image    = body.get("image", "📦")
+    if not name or price is None:
+        return json_response({"error": "name and price are required"}, 400)
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO products (name, price, category, stock, rating, image) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (name, price, category, stock, rating, image),
+        )
+        conn.commit()
+        new_id = cur.lastrowid
+        row = conn.execute("SELECT * FROM products WHERE id=?", (new_id,)).fetchone()
+    logger.info("Product created | id=%d | name=%s | pod=%s", new_id, name, POD_NAME)
+    return json_response({"product": row_to_dict(row)}, 201)
+
+
+@app.route("/api/products/<int:product_id>", methods=["PUT"])
+def update_product(product_id):
+    body = request.get_json(silent=True) or {}
+    allowed = {"name", "price", "category", "stock", "rating", "image"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        return json_response({"error": "Nothing to update"}, 400)
+    set_clause = ", ".join(f"{k}=?" for k in updates)
+    values     = list(updates.values()) + [product_id]
+    with get_db() as conn:
+        conn.execute(f"UPDATE products SET {set_clause} WHERE id=?", values)
+        conn.commit()
+        row = conn.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone()
+    if not row:
+        return json_response({"error": "Product not found"}, 404)
+    logger.info("Product updated | id=%d | pod=%s", product_id, POD_NAME)
+    return json_response({"product": row_to_dict(row)})
+
+
+@app.route("/api/products/<int:product_id>", methods=["DELETE"])
+def delete_product(product_id):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone()
+        if not row:
+            return json_response({"error": "Product not found"}, 404)
+        conn.execute("DELETE FROM products WHERE id=?", (product_id,))
+        conn.commit()
+    logger.info("Product deleted | id=%d | pod=%s", product_id, POD_NAME)
+    return json_response({"deleted": product_id})
+
+
+# ── Categories ───────────────────────────────────────────────────────────────
+
+@app.route("/api/categories")
+def get_categories():
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT category FROM products ORDER BY category"
+        ).fetchall()
+    categories = [r["category"] for r in rows]
+    return json_response({"categories": categories})
+
+
+# ── DB stats (learning endpoint) ─────────────────────────────────────────────
+
+@app.route("/api/db/stats")
+def db_stats():
+    """Shows students the physical DB file and row count."""
+    with get_db() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+    try:
+        size_bytes = os.path.getsize(DB_PATH)
+    except OSError:
+        size_bytes = 0
     return json_response({
-        "pod": pod_meta(),
+        "db_path":    DB_PATH,
+        "db_size_kb": round(size_bytes / 1024, 2),
+        "row_count":  count,
         "note": (
-            "In-memory data resets when this Pod restarts. "
-            "This is intentional – it teaches Pod ephemerality."
+            "This SQLite file is stored in an emptyDir volume. "
+            "Data survives pod restarts on the same node but is lost "
+            "if the pod moves to a new node. Use a PVC for true persistence."
         ),
     })
 
 
+# ── Info / Health / Ready ─────────────────────────────────────────────────────
+
+@app.route("/api/info")
+def api_info():
+    return json_response({"pod": pod_meta(), "db_path": DB_PATH})
+
+
 @app.route("/health")
 def health():
-    """Liveness probe endpoint. Returns 200 as long as the process runs."""
     return jsonify({"status": "healthy", "pod": POD_NAME, "version": APP_VERSION})
 
 
 @app.route("/ready")
 def ready():
-    """
-    Readiness probe endpoint.
-    Returns 200 when the service is ready to accept traffic.
-    Students can simulate a not-ready state by temporarily returning 503.
-    """
     return jsonify({"status": "ready", "pod": POD_NAME, "version": APP_VERSION})
-
-
-@app.route("/api/categories")
-def get_categories():
-    categories = sorted(set(p["category"] for p in PRODUCTS))
-    return json_response({"categories": categories})
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    init_db()
     port = int(os.environ.get("PORT", 5000))
     logger.info("Starting MiniMart Backend | pod=%s | version=%s | port=%d",
                 POD_NAME, APP_VERSION, port)

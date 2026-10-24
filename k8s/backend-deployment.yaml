@@ -9,6 +9,9 @@
 #   • resource requests/limits keep the local Minikube node happy.
 #   • liveness + readiness probes show Kubernetes how to manage
 #     unhealthy pods automatically.
+#   • emptyDir volume at /data holds the SQLite DB file.
+#     Data survives container restarts but NOT pod rescheduling.
+#     Upgrade to a PersistentVolumeClaim for durable storage.
 # ============================================================
 
 apiVersion: apps/v1
@@ -65,6 +68,8 @@ spec:
                   fieldPath: spec.nodeName
             - name: APP_VERSION
               value: "1.0.0"
+            - name: DB_DIR
+              value: "/data"
 
           # ── Resource limits for a lightweight local cluster ─────
           resources:
@@ -95,6 +100,18 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
+
+          # ── Volume mount for SQLite DB ──────────────────────────
+          volumeMounts:
+            - name: sqlite-data
+              mountPath: /data
+
+      # ── Volumes ────────────────────────────────────────────────
+      # emptyDir: ephemeral but survives container restarts.
+      # Upgrade to a PVC to persist data across pod restarts.
+      volumes:
+        - name: sqlite-data
+          emptyDir: {}
 
 ---
 # ============================================================
