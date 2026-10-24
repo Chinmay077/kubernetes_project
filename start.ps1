@@ -12,12 +12,12 @@ kubectl get pods -o wide
 Write-Host "`n==> Opening MiniMart in Browser..." -ForegroundColor Cyan
 Start-Process "http://localhost:8080/lab"
 
-Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Magenta
-Write-Host "║  MiniMart is LIVE!                                       ║" -ForegroundColor Magenta
-Write-Host "║  Shop:          http://localhost:8080                    ║" -ForegroundColor Magenta
-Write-Host "║  K8s Lab:       http://localhost:8080/lab                ║" -ForegroundColor Magenta
-Write-Host "║  Notif Events:  http://localhost:8080/api/notify/events  ║" -ForegroundColor Magenta
-Write-Host "╚══════════════════════════════════════════════════════════╝`n" -ForegroundColor Magenta
+Write-Host "`n============================================================" -ForegroundColor Magenta
+Write-Host "  MiniMart is LIVE!" -ForegroundColor Magenta
+Write-Host "  Shop:          http://localhost:8080" -ForegroundColor Magenta
+Write-Host "  K8s Lab:       http://localhost:8080/lab" -ForegroundColor Magenta
+Write-Host "  Notif Events:  http://localhost:8080/api/notify/events" -ForegroundColor Magenta
+Write-Host "============================================================`n" -ForegroundColor Magenta
 Write-Host "Press Ctrl+C anytime to stop port forwarding.`n" -ForegroundColor Yellow
 
 # Port forward keeps the connection active to localhost:8080
