@@ -1,0 +1,124 @@
+# ============================================================
+# MiniMart Backend – Deployment
+# ============================================================
+# Teaching notes:
+#   • 2 replicas → students can observe two different pod names
+#     in API responses, proving the ClusterIP load-balances.
+#   • Downward API env vars expose the pod name/namespace
+#     so the Flask app can include them in every response.
+#   • resource requests/limits keep the local Minikube node happy.
+#   • liveness + readiness probes show Kubernetes how to manage
+#     unhealthy pods automatically.
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minimart-backend
+  labels:
+    app: minimart-backend
+    tier: backend
+    version: "1.0.0"
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: minimart-backend
+
+  # Rolling update: Kubernetes replaces pods one at a time.
+  # maxUnavailable=0 means traffic is never interrupted.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  template:
+    metadata:
+      labels:
+        app: minimart-backend
+        tier: backend
+        version: "1.0.0"
+    spec:
+      containers:
+        - name: backend
+          image: minimart-backend:latest
+          imagePullPolicy: Never   # Use the locally-built image in Minikube
+
+          ports:
+            - containerPort: 5000
+
+          # ── Downward API: inject pod identity as env vars ──────
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: APP_VERSION
+              value: "1.0.0"
+
+          # ── Resource limits for a lightweight local cluster ─────
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          # ── Liveness probe ─────────────────────────────────────
+          # If /health fails 3 times, Kubernetes RESTARTS the container.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+
+          # ── Readiness probe ────────────────────────────────────
+          # If /ready fails, the pod is REMOVED from Service endpoints
+          # (no restart). Traffic stops reaching it until it recovers.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+
+---
+# ============================================================
+# MiniMart Backend – ClusterIP Service
+# ============================================================
+# ClusterIP = reachable only from inside the cluster.
+# The frontend pod contacts this via DNS: minimart-backend-svc:5000
+# Students: run `kubectl get endpoints minimart-backend-svc` to
+# see the actual pod IPs this service routes to.
+# ============================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: minimart-backend-svc
+  labels:
+    app: minimart-backend
+    tier: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: minimart-backend   # Routes to pods with this label
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+      protocol: TCP

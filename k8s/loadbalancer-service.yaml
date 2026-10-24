@@ -1,0 +1,40 @@
+# ============================================================
+# Optional: LoadBalancer Service for Minikube tunnel demo
+# ============================================================
+# Purpose: Teach students the difference between NodePort and
+# LoadBalancer Service types.
+#
+# To use:
+#   1. Apply this manifest:
+#        kubectl apply -f k8s/loadbalancer-service.yaml
+#
+#   2. In a separate terminal, run the Minikube tunnel:
+#        minikube tunnel
+#        (keep this terminal open - it needs elevated permissions)
+#
+#   3. Get the external IP assigned:
+#        kubectl get svc minimart-frontend-lb
+#
+#   4. Open http://<EXTERNAL-IP>:8080 in your browser
+#
+# In a real cloud (GKE, EKS, AKS), a cloud load balancer would be
+# provisioned automatically. Minikube tunnel simulates that locally.
+# ============================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: minimart-frontend-lb
+  labels:
+    app: minimart-frontend
+    tier: frontend
+    demo: loadbalancer
+spec:
+  type: LoadBalancer
+  selector:
+    app: minimart-frontend   # Same pods as the NodePort Service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

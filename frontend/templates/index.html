@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MiniMart – Kubernetes Learning Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <!-- ── Nav ─────────────────────────────────────────────────────────── -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="brand-icon">🛒</span>
+      <span class="brand-name">MiniMart</span>
+      <span class="brand-tag">K8s Learning Lab</span>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link active">Shop</a>
+      <a href="/lab" class="nav-link">🔬 K8s Lab</a>
+    </div>
+    <div class="nav-meta" id="navMeta">
+      <span class="meta-pill" id="frontendPod">🖥 Pod: loading…</span>
+      <span class="meta-pill version" id="frontendVersion">v1.0.0</span>
+    </div>
+  </nav>
+
+  <!-- ── Pod Info Banner ──────────────────────────────────────────────── -->
+  <div class="info-banner" id="infoBanner">
+    <div class="info-item">
+      <span class="info-label">Frontend Pod</span>
+      <code class="info-value" id="fePodName">–</code>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Backend Pod</span>
+      <code class="info-value" id="bePodName">–</code>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Backend Version</span>
+      <code class="info-value" id="beVersion">–</code>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Last Request</span>
+      <code class="info-value" id="lastRequest">–</code>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Total Requests (this pod)</span>
+      <code class="info-value" id="reqCount">–</code>
+    </div>
+    <button class="btn-refresh" onclick="loadProducts()" id="refreshBtn">
+      ↺ Refresh
+    </button>
+  </div>
+
+  <!-- ── Hero ─────────────────────────────────────────────────────────── -->
+  <header class="hero">
+    <div class="hero-content">
+      <h1>Discover <span class="gradient-text">Amazing Products</span></h1>
+      <p>Every product request routes through Kubernetes. Watch which Pod serves you!</p>
+    </div>
+    <div class="category-filter" id="categoryFilter">
+      <button class="cat-btn active" onclick="filterCategory(null, this)">All</button>
+    </div>
+  </header>
+
+  <!-- ── Product Grid ──────────────────────────────────────────────────── -->
+  <main class="container">
+    <div class="products-grid" id="productsGrid">
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <p>Fetching products from backend Pod…</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── K8s Hint Footer ───────────────────────────────────────────────── -->
+  <footer class="k8s-hint">
+    <div class="hint-content">
+      <span class="hint-icon">💡</span>
+      <span>
+        <strong>K8s Insight:</strong> Each page refresh may hit a <em>different</em> frontend Pod (3 replicas). 
+        The backend ClusterIP Service distributes API calls across 2 backend Pods. 
+        <a href="/lab">Open the Lab Dashboard →</a> to visualise this live.
+      </span>
+    </div>
+  </footer>
+
+  <script src="/static/shop.js"></script>
+</body>
+</html>

@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>K8s Lab Dashboard – MiniMart</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/lab.css" />
+</head>
+<body class="lab-body">
+
+  <!-- ── Nav ─────────────────────────────────────────────────────────── -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="brand-icon">🛒</span>
+      <span class="brand-name">MiniMart</span>
+      <span class="brand-tag">K8s Learning Lab</span>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Shop</a>
+      <a href="/lab" class="nav-link active">🔬 K8s Lab</a>
+    </div>
+    <div class="nav-meta">
+      <span class="meta-pill live-pill">🟢 LIVE DATA</span>
+      <span class="meta-pill sim-pill">🟡 SIMULATED</span>
+    </div>
+  </nav>
+
+  <!-- ── Lab Header ───────────────────────────────────────────────────── -->
+  <div class="lab-header">
+    <h1>Kubernetes Architecture <span class="gradient-text">Live Dashboard</span></h1>
+    <p class="lab-subtitle">
+      Visualising your actual MiniMart cluster topology. 
+      <span class="badge-live">🟢 Live</span> items reflect real API responses. 
+      <span class="badge-sim">🟡 Sim</span> items are educational illustrations.
+    </p>
+    <div class="lab-controls">
+      <button class="btn-primary" onclick="Lab.sendRequest()">▶ Send Request</button>
+      <button class="btn-secondary" onclick="Lab.sendBurst()">⚡ Burst (10×)</button>
+      <button class="btn-ghost" onclick="Lab.refresh()">↺ Refresh Data</button>
+    </div>
+  </div>
+
+  <!-- ── Architecture Diagram ─────────────────────────────────────────── -->
+  <section class="arch-section">
+    <h2 class="section-title">Cluster Architecture</h2>
+    <div class="arch-diagram" id="archDiagram">
+
+      <!-- Column 1: Browser -->
+      <div class="arch-col">
+        <div class="arch-node browser-node">
+          <div class="node-icon">🌐</div>
+          <div class="node-label">User Browser</div>
+          <div class="node-sub">You are here</div>
+        </div>
+      </div>
+
+      <!-- Arrow 1 -->
+      <div class="arch-arrow" id="arrow1">
+        <div class="arrow-line"></div>
+        <div class="arrow-head">→</div>
+        <div class="arrow-label">HTTP</div>
+        <div class="arrow-packet" id="pkt1"></div>
+      </div>
+
+      <!-- Column 2: NodePort -->
+      <div class="arch-col">
+        <div class="arch-node service-node nodeport-node">
+          <div class="node-badge badge-live">🟢 Live</div>
+          <div class="node-icon">🔀</div>
+          <div class="node-label">NodePort Service</div>
+          <div class="node-sub">minimart-frontend-svc</div>
+          <div class="node-detail">Port: <code>30080</code></div>
+          <div class="node-detail">Type: <code>NodePort</code></div>
+        </div>
+      </div>
+
+      <!-- Arrow 2 -->
+      <div class="arch-arrow" id="arrow2">
+        <div class="arrow-line"></div>
+        <div class="arrow-head">→</div>
+        <div class="arrow-label">kube-proxy</div>
+        <div class="arrow-packet" id="pkt2"></div>
+      </div>
+
+      <!-- Column 3: Frontend Deployment + Pods -->
+      <div class="arch-col wider-col">
+        <div class="arch-node deployment-node">
+          <div class="node-badge badge-live">🟢 Live</div>
+          <div class="node-icon">📦</div>
+          <div class="node-label">Frontend Deployment</div>
+          <div class="node-sub">minimart-frontend</div>
+          <div class="node-detail">Desired replicas: <code>3</code></div>
+          <div class="node-detail">Strategy: <code>RollingUpdate</code></div>
+        </div>
+        <div class="pods-row" id="fePods">
+          <!-- Injected by JS -->
+          <div class="pod-card-skeleton"></div>
+          <div class="pod-card-skeleton"></div>
+          <div class="pod-card-skeleton"></div>
+        </div>
+      </div>
+
+      <!-- Arrow 3 -->
+      <div class="arch-arrow" id="arrow3">
+        <div class="arrow-line"></div>
+        <div class="arrow-head">→</div>
+        <div class="arrow-label">ClusterIP DNS</div>
+        <div class="arrow-packet" id="pkt3"></div>
+      </div>
+
+      <!-- Column 4: Backend ClusterIP + Pods -->
+      <div class="arch-col wider-col">
+        <div class="arch-node service-node clusterip-node">
+          <div class="node-badge badge-live">🟢 Live</div>
+          <div class="node-icon">🔀</div>
+          <div class="node-label">ClusterIP Service</div>
+          <div class="node-sub">minimart-backend-svc</div>
+          <div class="node-detail">DNS: <code>minimart-backend-svc</code></div>
+          <div class="node-detail">Port: <code>5000</code></div>
+        </div>
+        <div class="pods-row" id="bePods">
+          <div class="pod-card-skeleton"></div>
+          <div class="pod-card-skeleton"></div>
+        </div>
+      </div>
+
+      <!-- Arrow 4 -->
+      <div class="arch-arrow" id="arrow4">
+        <div class="arrow-line"></div>
+        <div class="arrow-head">→</div>
+        <div class="arrow-label">in-memory</div>
+        <div class="arrow-packet" id="pkt4"></div>
+      </div>
+
+      <!-- Column 5: Data source -->
+      <div class="arch-col">
+        <div class="arch-node data-node">
+          <div class="node-badge badge-live">🟢 Live</div>
+          <div class="node-icon">🗃️</div>
+          <div class="node-label">Product Data</div>
+          <div class="node-sub">In-Memory (RAM)</div>
+          <div class="node-detail warn">⚠️ Resets on Pod restart</div>
+          <div class="node-detail info">→ PostgreSQL in Exercise 2</div>
+        </div>
+      </div>
+
+    </div><!-- /arch-diagram -->
+
+    <!-- Live stats bar -->
+    <div class="stats-bar" id="statsBar">
+      <div class="stat-item">
+        <span class="stat-label">Requests sent</span>
+        <span class="stat-value" id="totalRequests">0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Last FE Pod</span>
+        <span class="stat-value" id="lastFePod">–</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Last BE Pod</span>
+        <span class="stat-value" id="lastBePod">–</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Unique FE Pods seen</span>
+        <span class="stat-value" id="uniqueFe">0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Unique BE Pods seen</span>
+        <span class="stat-value" id="uniqueBe">0</span>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ── Request Log ───────────────────────────────────────────────────── -->
+  <section class="log-section">
+    <h2 class="section-title">Request Log <span class="badge-live">🟢 Live</span></h2>
+    <p class="section-desc">Each row is a real HTTP request routed through your Kubernetes Services.</p>
+    <div class="log-table-wrap">
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Time</th><th>Frontend Pod</th><th>Backend Pod</th><th>Status</th><th>Latency</th>
+          </tr>
+        </thead>
+        <tbody id="logBody">
+          <tr><td colspan="6" class="empty-row">No requests yet — click <strong>Send Request</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── Experiments Panel ─────────────────────────────────────────────── -->
+  <section class="experiments-section">
+    <h2 class="section-title">Interactive Experiments</h2>
+    <p class="section-desc">Click an experiment to expand it. Follow the instructions in your terminal.</p>
+
+    <div class="experiments-grid">
+
+      <!-- Experiment A -->
+      <div class="experiment-card" onclick="Lab.toggleExp('expA')">
+        <div class="exp-header">
+          <span class="exp-badge">A</span>
+          <div>
+            <h3>Request Routing</h3>
+            <p>See which Pod handles each request</p>
+          </div>
+          <span class="exp-toggle" id="expAToggle">▼</span>
+        </div>
+        <div class="exp-body" id="expA">
+          <div class="exp-concept">
+            <h4>📚 Concept</h4>
+            <p>When you access MiniMart via the <strong>NodePort Service</strong>, kube-proxy intercepts the TCP connection and forwards it to one of the healthy frontend Pods using iptables rules. The Service does <em>not</em> guarantee round-robin; it uses random selection by default.</p>
+          </div>
+          <div class="exp-steps">
+            <h4>🧪 Try it</h4>
+            <ol>
+              <li>Click <strong>Send Request</strong> above multiple times.</li>
+              <li>Watch the <em>Last FE Pod</em> and <em>Last BE Pod</em> change.</li>
+              <li>Open your terminal and run:</li>
+            </ol>
+            <div class="code-block">
+              <pre><code># Watch pods receive requests in real time
+kubectl logs -l app=minimart-frontend --all-containers -f --prefix
+
+# In another terminal, run curl 10 times
+for i in $(seq 1 10); do curl -s http://$(minikube ip):30080/api/proxy/info | python -m json.tool; done</code></pre>
+            </div>
+          </div>
+          <div class="exp-outcome">
+            <h4>✅ Expected Outcome</h4>
+            <p>You should see requests landing on <em>different</em> Pods. The pod name in each response may repeat (not every request hits a new Pod).</p>
+          </div>
+          <div class="live-demo" id="expADemo">
+            <button class="btn-secondary" onclick="event.stopPropagation(); Lab.runRoutingDemo()">▶ Run Demo (5 requests)</button>
+            <div id="routingResults" class="routing-results"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Experiment B -->
+      <div class="experiment-card" onclick="Lab.toggleExp('expB')">
+        <div class="exp-header">
+          <span class="exp-badge">B</span>
+          <div>
+            <h3>Scaling</h3>
+            <p>Scale replicas up and observe Pod distribution</p>
+          </div>
+          <span class="exp-toggle" id="expBToggle">▼</span>
+        </div>
+        <div class="exp-body" id="expB">
+          <div class="exp-concept">
+            <h4>📚 Concept</h4>
+            <p>A <strong>Deployment</strong> defines a desired number of replicas. The <strong>ReplicaSet controller</strong> watches the cluster and continuously reconciles the actual Pod count with the desired count. Scaling simply changes the <code>replicas</code> field.</p>
+          </div>
+          <div class="exp-steps">
+            <h4>🧪 Try it</h4>
+            <div class="code-block">
+              <pre><code># Scale frontend to 5 replicas
+kubectl scale deployment minimart-frontend --replicas=5
+
+# Watch pods appear (keep this terminal open)
+kubectl get pods -l app=minimart-frontend -w
+
+# Verify new pods are Running
+kubectl get pods -l app=minimart-frontend
+
+# Scale back down
+kubectl scale deployment minimart-frontend --replicas=3</code></pre>
+            </div>
+          </div>
+          <div class="exp-outcome">
+            <h4>✅ Expected Outcome</h4>
+            <p>You'll see 2 new Pods appear with status <code>ContainerCreating</code> → <code>Running</code>. After scaling down, 2 Pods will be <code>Terminating</code>. The Deployment always maintains the desired count.</p>
+          </div>
+          <div class="k8s-diagram sim-block">
+            <span class="badge-sim">🟡 Simulated</span>
+            <div class="scaling-sim" id="scalingSim">
+              <div class="sim-pods" id="simPods"></div>
+              <div class="sim-controls">
+                <button class="btn-sm" onclick="event.stopPropagation(); Lab.simScale(3)">3 replicas</button>
+                <button class="btn-sm" onclick="event.stopPropagation(); Lab.simScale(5)">5 replicas</button>
+                <button class="btn-sm" onclick="event.stopPropagation(); Lab.simScale(1)">1 replica</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Experiment C -->
+      <div class="experiment-card" onclick="Lab.toggleExp('expC')">
+        <div class="exp-header">
+          <span class="exp-badge">C</span>
+          <div>
+            <h3>Self-Healing</h3>
+            <p>Delete a Pod and watch Kubernetes recreate it</p>
+          </div>
+          <span class="exp-toggle" id="expCToggle">▼</span>
+        </div>
+        <div class="exp-body" id="expC">
+          <div class="exp-concept">
+            <h4>📚 Concept</h4>
+            <p>A Pod managed by a Deployment is <strong>ephemeral</strong>. If you delete it, the ReplicaSet controller detects the deficit and schedules a replacement. This is the "self-healing" loop.</p>
+            <pre class="concept-chain">Deployment → ReplicaSet → Pod (deleted) → ReplicaSet notices → New Pod scheduled</pre>
+          </div>
+          <div class="exp-steps">
+            <h4>🧪 Try it</h4>
+            <div class="code-block">
+              <pre><code># List current frontend pods
+kubectl get pods -l app=minimart-frontend
+
+# Copy one pod name from the output above, then:
+kubectl delete pod &lt;paste-pod-name-here&gt;
+
+# Watch in another terminal:
+kubectl get pods -l app=minimart-frontend -w
+
+# The deleted pod shows Terminating, a new one appears immediately</code></pre>
+            </div>
+          </div>
+          <div class="exp-outcome">
+            <h4>✅ Expected Outcome</h4>
+            <p>The deleted Pod is replaced within seconds. Your application never goes fully offline because the other 2 replicas continue serving traffic during the brief Pod restart.</p>
+          </div>
+          <div class="sim-block">
+            <span class="badge-sim">🟡 Simulated — NOT a real kubectl delete</span>
+            <div class="self-heal-sim">
+              <div class="sim-pods" id="healPods"></div>
+              <button class="btn-danger" onclick="event.stopPropagation(); Lab.simDelete()">💀 Simulate Pod Deletion</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Experiment D -->
+      <div class="experiment-card" onclick="Lab.toggleExp('expD')">
+        <div class="exp-header">
+          <span class="exp-badge">D</span>
+          <div>
+            <h3>Load Balancing</h3>
+            <p>Observe traffic distribution across Pods</p>
+          </div>
+          <span class="exp-toggle" id="expDToggle">▼</span>
+        </div>
+        <div class="exp-body" id="expD">
+          <div class="exp-concept">
+            <h4>📚 Concept</h4>
+            <p>Kubernetes Services use iptables rules (or IPVS) for load balancing. The algorithm is <strong>random selection</strong> across endpoints, not strict round-robin. With small request counts you may see uneven distribution — this is expected.</p>
+          </div>
+          <div class="exp-steps">
+            <h4>🧪 Try it</h4>
+            <button class="btn-secondary" onclick="event.stopPropagation(); Lab.sendBurst(20)">⚡ Send 20 requests</button>
+          </div>
+          <div class="lb-chart" id="lbChart">
+            <h4>Pod Hit Distribution <span class="badge-live">🟢 Live</span></h4>
+            <div id="fePodBars" class="pod-bars"></div>
+            <div id="bePodBars" class="pod-bars"></div>
+          </div>
+          <div class="exp-outcome">
+            <h4>✅ Expected Outcome</h4>
+            <p>After 20 requests, distribution will be <em>approximately</em> even but rarely perfect. This proves that Kubernetes does not guarantee strict round-robin.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Experiment E -->
+      <div class="experiment-card" onclick="Lab.toggleExp('expE')">
+        <div class="exp-header">
+          <span class="exp-badge">E</span>
+          <div>
+            <h3>Health Checks</h3>
+            <p>Understand liveness vs readiness probes</p>
+          </div>
+          <span class="exp-toggle" id="expEToggle">▼</span>
+        </div>
+        <div class="exp-body" id="expE">
+          <div class="exp-concept">
+            <h4>📚 Concept</h4>
+            <ul>
+              <li><strong>Liveness probe</strong> → Is the container still alive? If it fails, Kubernetes <em>restarts</em> the container.</li>
+              <li><strong>Readiness probe</strong> → Is the container ready to receive traffic? If it fails, the Pod is removed from the Service's endpoint list but is NOT restarted.</li>
+            </ul>
+          </div>
+          <div class="health-check-live" id="healthPanel">
+            <h4>Live Probe Results <span class="badge-live">🟢 Live</span></h4>
+            <div class="health-grid">
+              <div class="health-card">
+                <div class="health-label">Backend /health (liveness)</div>
+                <div class="health-status" id="healthStatus">Checking…</div>
+                <div class="health-detail" id="healthDetail"></div>
+              </div>
+              <div class="health-card">
+                <div class="health-label">Backend /ready (readiness)</div>
+                <div class="health-status" id="readyStatus">Checking…</div>
+                <div class="health-detail" id="readyDetail"></div>
+              </div>
+            </div>
+            <button class="btn-secondary" onclick="event.stopPropagation(); Lab.checkHealth()">↺ Re-check probes</button>
+          </div>
+          <div class="exp-steps">
+            <h4>🧪 kubectl Probe Inspection</h4>
+            <div class="code-block">
+              <pre><code># Describe a pod to see probe configuration
+kubectl describe pod -l app=minimart-backend | grep -A 10 "Liveness\|Readiness"
+
+# Watch probe events
+kubectl get events --sort-by=.metadata.creationTimestamp | grep -i probe</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /experiments-grid -->
+  </section>
+
+  <!-- ── kubectl Cheat Sheet ───────────────────────────────────────────── -->
+  <section class="cheatsheet-section">
+    <h2 class="section-title">kubectl Cheat Sheet</h2>
+    <div class="cheatsheet-grid">
+      <div class="cheat-card">
+        <h4>Inspect</h4>
+        <pre><code>kubectl get pods
+kubectl get services
+kubectl get deployments
+kubectl describe pod &lt;name&gt;
+kubectl get events -w</code></pre>
+      </div>
+      <div class="cheat-card">
+        <h4>Logs</h4>
+        <pre><code>kubectl logs &lt;pod-name&gt;
+kubectl logs -l app=minimart-backend -f
+kubectl logs --previous &lt;pod-name&gt;</code></pre>
+      </div>
+      <div class="cheat-card">
+        <h4>Scale &amp; Update</h4>
+        <pre><code>kubectl scale deployment minimart-frontend --replicas=5
+kubectl rollout status deployment/minimart-frontend
+kubectl rollout undo deployment/minimart-frontend</code></pre>
+      </div>
+      <div class="cheat-card">
+        <h4>Debug</h4>
+        <pre><code>kubectl exec -it &lt;pod-name&gt; -- /bin/sh
+kubectl port-forward svc/minimart-backend-svc 5000:5000
+kubectl top pods</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <script src="/static/lab.js"></script>
+</body>
+</html>
