@@ -428,6 +428,127 @@ const Lab = (() => {
     }
   }
 
+  // ── Experiment H: Live SQLite Inspector ───────────────────────
+  async function loadDbTable() {
+    const tbody = $('dbTableBody');
+    const pathEl = $('dbStatPath');
+    const countEl = $('dbStatCount');
+    const sizeEl = $('dbStatSize');
+    const podEl = $('dbStatPod');
+
+    try {
+      // 1. Fetch DB Stats
+      const sRes = await fetch('/api/proxy/db/stats');
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        if (pathEl) pathEl.textContent = sData?.data?.db_path || '/data/minimart.db';
+        if (countEl) countEl.textContent = sData?.data?.row_count ?? '–';
+        if (sizeEl) sizeEl.textContent = (sData?.data?.db_size_kb || 0) + ' KB';
+        if (podEl) podEl.textContent = sData?.meta?.pod_name || '–';
+      }
+
+      // 2. Fetch all products rows
+      const pRes = await fetch('/api/proxy/products');
+      if (!pRes.ok) throw new Error(`HTTP ${pRes.status}`);
+      const pData = await pRes.json();
+      const products = pData?.data?.products || [];
+
+      if (!tbody) return;
+      if (products.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--text-muted)">SQLite table is empty.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = products.map(p => `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.06)">
+          <td style="padding:8px 10px;font-family:monospace;color:var(--accent)">#${p.id}</td>
+          <td style="padding:8px 10px;font-size:1.1rem">${p.image || '📦'}</td>
+          <td style="padding:8px 10px;font-weight:600">${p.name}</td>
+          <td style="padding:8px 10px"><span style="background:rgba(255,255,255,0.1);padding:2px 8px;border-radius:12px;font-size:0.75rem">${p.category}</span></td>
+          <td style="padding:8px 10px;color:#4ade80">$${Number(p.price).toFixed(2)}</td>
+          <td style="padding:8px 10px">${p.stock}</td>
+          <td style="padding:8px 10px">
+            <button onclick="event.stopPropagation(); Lab.deleteDbRecord(${p.id})" style="background:#ef4444;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:0.72rem;cursor:pointer">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    } catch(err) {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;text-align:center;color:#f87171">Failed to load SQLite table: ${err.message}</td></tr>`;
+    }
+  }
+
+  async function insertDbRecord() {
+    const nameEl  = $('dbNewName');
+    const catEl   = $('dbNewCategory');
+    const priceEl = $('dbNewPrice');
+    const iconEl  = $('dbNewEmoji');
+    const stockEl = $('dbNewStock');
+    const msgEl   = $('dbInsertMsg');
+
+    const name  = nameEl?.value.trim();
+    const price = parseFloat(priceEl?.value);
+    if (!name || isNaN(price)) {
+      if (msgEl) {
+        msgEl.style.color = '#f87171';
+        msgEl.textContent = '❌ Please enter a valid name and price!';
+      }
+      return;
+    }
+
+    if (msgEl) {
+      msgEl.style.color = '#38bdf8';
+      msgEl.textContent = 'Inserting into SQLite...';
+    }
+
+    try {
+      const res = await fetch('/api/proxy/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name,
+          price: price,
+          category: catEl?.value || 'General',
+          image: iconEl?.value || '📦',
+          stock: parseInt(stockEl?.value || '10', 10),
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.data?.error || `HTTP ${res.status}`);
+
+      const newId = json?.data?.product?.id;
+      const pod = json?.meta?.pod_name || 'backend';
+      if (msgEl) {
+        msgEl.style.color = '#4ade80';
+        msgEl.textContent = `✓ Inserted row ID #${newId} into SQLite! (Handled by ${pod})`;
+      }
+
+      if (nameEl) nameEl.value = '';
+      if (priceEl) priceEl.value = '';
+
+      // Refresh table view and notifications
+      await loadDbTable();
+      refreshNotifications();
+    } catch(err) {
+      if (msgEl) {
+        msgEl.style.color = '#f87171';
+        msgEl.textContent = `❌ Error: ${err.message}`;
+      }
+    }
+  }
+
+  async function deleteDbRecord(id) {
+    if (!confirm(`Delete product ID #${id} from SQLite?`)) return;
+    try {
+      const res = await fetch(`/api/proxy/products/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await loadDbTable();
+      refreshNotifications();
+    } catch(err) {
+      alert(`Delete failed: ${err.message}`);
+    }
+  }
+
   // ── Helpers ────────────────────────────────────────────────────
   function shorten(name, max=18) {
     if (!name) return '–';
@@ -441,6 +562,7 @@ const Lab = (() => {
   function init() {
     loadArchData();
     checkHealth();
+    loadDbTable();
     // initialise sims
     renderSimPods($('simPods'), 3, () => 'running');
     initHealPods();
@@ -452,5 +574,7 @@ const Lab = (() => {
   return { sendRequest, sendBurst, refresh, toggleExp, runRoutingDemo,
            simScale, simDelete, checkHealth,
            createTestProduct, refreshNotifications, clearNotifications,
-           runLatencyComparison };
+           runLatencyComparison,
+           loadDbTable, insertDbRecord, deleteDbRecord };
 })();
+
